@@ -1,0 +1,11 @@
+[package]
+name = "gpt-alarm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+http = "1.4.0"
+reqwest = "0.13.2"
+serde_json = "1.0.149"
+subprocess = "1.0.3"
+tokio = { version = "1.51.1", features = ["full"] }

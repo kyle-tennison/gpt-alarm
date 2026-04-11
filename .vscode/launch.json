@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug",
+            "cargo": {
+                "args": ["build", "--manifest-path", "${workspaceFolder}/Cargo.toml"]
+            },
+            "program": "${workspaceFolder}/target/debug/${workspaceFolderBasename}",
+            "env": {
+                "PATH": "/Users/kyletennison/.cargo/bin:/Users/kyletennison/.rustup/toolchains/stable-aarch64-apple-darwin/bin:/usr/bin:/bin"
+            },
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
