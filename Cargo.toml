@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-process = "2.5.0"
 http = "1.4.0"
 reqwest = "0.13.2"
 serde_json = "1.0.149"
 subprocess = "1.0.3"
+tempdir = "0.3.7"
 tokio = { version = "1.51.1", features = ["full"] }
+nokhwa = { version = "0.10", features = ["input-native"] }
+image = "0.25.10"
+base64 = "0.22.1"
