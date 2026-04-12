@@ -1,4 +1,5 @@
-use std::{sync::{Mutex, mpsc}, thread, time::Duration};
+use std::{sync::mpsc, thread, time::Duration};
+use rodio::{OutputStream, Sink, source::SineWave};
 
 pub struct SoundUtil{
     tx: mpsc::Sender<bool>
@@ -14,8 +15,12 @@ impl SoundUtil {
     }
 
     fn spawn_monitor(&self, rx: mpsc::Receiver<bool>) {
-
         thread::spawn(move || {
+            let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+            let sink = Sink::try_new(&stream_handle).unwrap();
+            sink.append(SineWave::new(950.0));
+            sink.set_volume(0.0);
+
             let mut state = false;
             println!("rust: starting clock loop");
             loop {
@@ -24,23 +29,21 @@ impl SoundUtil {
                 }
 
                 if state {
-                    Self::playsound();
-                    thread::sleep(Duration::from_millis(250));
+                    println!("\n\nALARM\nALARM\nALARM\nALARM\nALARM\nALARM\nALARM\nALARM\n\n\n");
+                    sink.set_volume(1.0);
+                    thread::sleep(Duration::from_millis(100));
+                    sink.set_volume(0.0);
+                    thread::sleep(Duration::from_millis(100));
+                } else {
+                    sink.set_volume(0.0);
+                    thread::sleep(Duration::from_millis(200));
                 }
-            } 
+            }
         });
-    }
-
-    fn playsound(){
-        let _ = subprocess::Exec::cmd("afplay")
-            .arg("/System/Library/Sounds/Ping.aiff")
-            .start();
     }
 
     pub fn update_state(&self, state: bool){
         self.tx.send(state).unwrap();
     }
-
-
 
 }

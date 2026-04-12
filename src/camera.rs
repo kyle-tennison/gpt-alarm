@@ -49,10 +49,7 @@ impl<'a> Camera<'a> {
 
 
             loop {
-
-                let start_time = Instant::now();
                 let frame = ncam.frame().expect("frame capture failed");
-                let frame_time = Instant::now();
                 
                 // // resize
                 let raw_buf = frame.decode_image::<RgbFormat>().expect("failed to decode frame");
@@ -65,11 +62,9 @@ impl<'a> Camera<'a> {
                 raw_buf.write_to(&mut png_buf, ImageFormat::Png).unwrap();
                 let png_buf = png_buf.into_inner();
                 
-                let active_image_path = workdir.join("active.png");
-                println!("rust: writing image to {:?}", &active_image_path);
-                File::create(active_image_path).unwrap().write(&png_buf).unwrap();
-                let png_time = Instant::now();
-                
+                // let active_image_path = workdir.join("active.png");
+                // println!("rust: writing image to {:?}", &active_image_path);
+                // File::create(active_image_path).unwrap().write(&png_buf).unwrap();
                 
                 let enc_base64 = base64::engine::general_purpose::STANDARD.encode(png_buf);
                 
@@ -78,7 +73,7 @@ impl<'a> Camera<'a> {
                     *frame_lock = Some(enc_base64);
                     drop(frame_lock);
                 }
-                let end_time = Instant::now();
+                thread::sleep(Duration::from_millis(100));
         }
             
 
