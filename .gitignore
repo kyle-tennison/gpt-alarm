@@ -9,6 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
+board/.history
+.DS_Store
 
 # Added by cargo
 
