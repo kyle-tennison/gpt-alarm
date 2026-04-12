@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, time::Instant};
 
 use tempdir::TempDir;
 
@@ -20,10 +20,12 @@ async fn main() {
     println!("rust: beginning main loop");
     
     loop {
+        let start = Instant::now();
         let frame = camera.take_image();
         let _ = llama::multimodal_bool_completion(PROMPT, &frame, 30).await;
-        break;
-
+        let delta = (Instant::now() - start).as_secs_f32();
+        println!("looped in {delta} s");
+        
         // break
     }
 

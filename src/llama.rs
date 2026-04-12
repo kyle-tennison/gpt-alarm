@@ -5,7 +5,7 @@ use std::{thread, time::{Duration, Instant}};
 use subprocess::{Exec, Job, Redirection};
 
 const LLAMA_SERVER_BIN: &str = "/opt/homebrew/bin/llama-server"; // update by machine
-const HF_MODEL: &str = "ggml-org/SmolVLM2-500M-Video-Instruct-GGUF";
+const HF_MODEL: &str = "LiquidAI/LFM2.5-VL-450M-GGUF";
 const LLAMA_PORT: usize = 8080;
 const LLAMA_HOST: &str = "127.0.0.1";
 const LLAMA_TTL: u64 = 60; // timeout for llama
@@ -58,10 +58,12 @@ pub async fn multimodal_bool_completion(text_prompt: &str, base64_image: &str, n
     for item in json["choices"].as_array().unwrap() {
         let prob = 1.;
         let token = item["message"]["content"].as_str().unwrap();
-        let token = token.to_lowercase()
+
+        let token = token.split_ascii_whitespace().next().unwrap_or("Empty").to_lowercase()
             .replace(".", "")
             .replace(" ", "")
             .replace("!", "")
+            .replace(",", "")
             .replace(";", "")
             ;
         println!("the token is '{token}'");
