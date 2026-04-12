@@ -1,12 +1,11 @@
-use std::{sync::mpsc, thread, time::Duration};
 use rodio::{OutputStream, Sink, source::SineWave};
+use std::{sync::mpsc, thread, time::Duration};
 
-pub struct SoundUtil{
-    tx: mpsc::Sender<bool>
+pub struct SoundUtil {
+    tx: mpsc::Sender<bool>,
 }
 
 impl SoundUtil {
-
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
         let util = SoundUtil { tx };
@@ -24,7 +23,7 @@ impl SoundUtil {
             let mut state = false;
             println!("rust: starting clock loop");
             loop {
-                if let Ok(update) = rx.try_recv(){
+                if let Ok(update) = rx.try_recv() {
                     state = update;
                 }
 
@@ -42,8 +41,7 @@ impl SoundUtil {
         });
     }
 
-    pub fn update_state(&self, state: bool){
+    pub fn update_state(&self, state: bool) {
         self.tx.send(state).unwrap();
     }
-
 }
