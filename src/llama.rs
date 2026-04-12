@@ -136,8 +136,8 @@ pub async fn start_server() -> Job {
             .arg(LLAMA_PORT.to_string())
             .arg("--parallel")
             .arg(NUM_PARALLEL.to_string())
-            .stdout(Redirection::None)
-            .stderr(Redirection::None)
+            .stdout(Redirection::Null)
+            .stderr(Redirection::Null)
             .start()
             .expect("llama crashed on start")
     });
