@@ -79,14 +79,6 @@ impl<'a> Camera<'a> {
                     drop(frame_lock);
                 }
                 let end_time = Instant::now();
-
-                println!("\n\n--- Time info: ---");
-                println!("Caputed frame data in {} s", (frame_time-start_time).as_secs_f32());
-                // println!("Resized frame in {} s", (resize_time-frame_time).as_secs_f32());
-                println!("Converted to PNG in {} s", (png_time-frame_time).as_secs_f32());
-                println!("Total time {} s", (end_time-start_time).as_secs_f32());
-                println!("\n")
-
         }
             
 
