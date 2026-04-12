@@ -7,7 +7,7 @@ mod camera;
 
 const PROMPT: &str ="Is there a person in this image? Please respond yes or no.";
 
-#[tokio::main]
+#[tokio::main(flavor = "local")]
 async fn main() {
     println!("Starting up llama.cpp");
     let job = llama::start_server().await;
