@@ -4,7 +4,7 @@
 Are you tired of hitting snooze… over and over again? 😴⏰ What if your alarm clock didn’t just ring… but actually made sure you got OUT of bed?! 🤯🔥
 
 Say hello to the next-level, wall-mounted smart alarm system 🧠📈
-✨ Here’s how it works: 👀 It checks in on you in the morning to see if you’re STILL in bed 🔊 If you are… a gentle beep nudges you awake (we start nice 😌) ⏳ You then have 30 seconds to get up — with progressively faster beeps building urgency 📊⚡ 🚨 Miss your window? ITS OVER 🔥🔥🔥🔥🔥 
+✨ Here’s how it works: 👀 It checks in on you in the morning to see if you’re STILL in bed 🔊 If you are… a gentle beep nudges you awake (we start nice 😌) ⏳ You then have 30 seconds to get up — with progressively faster beeps building urgency 📊⚡  Miss your window? SIRENNNNNNNNNN🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
 
 This isn’t just an alarm clock. It’s accountability. It’s discipline. It’s a lifestyle upgrade. No more excuses. No more snoozing. Just results.
 
