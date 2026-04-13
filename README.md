@@ -1,6 +1,7 @@
 # `gpt-alarm`
 
-<img width="781" height="554" alt="image" src="https://github.com/user-attachments/assets/709a2129-3bb6-4463-b940-5eb57c1b45b6" />
+<img width="1040" height="612" alt="image" src="https://github.com/user-attachments/assets/a8fa0652-b4f2-4cac-93f4-d38fed49628d" />
+
 
 
 An alarm clock that only goes off once you're actually out of bed. 
