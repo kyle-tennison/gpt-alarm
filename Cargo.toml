@@ -15,3 +15,6 @@ nokhwa = { version = "0.10", features = ["input-native"] }
 rodio = "0.20"
 image = "0.25.10"
 base64 = "0.22.1"
+gstreamer = "0.25.2"
+memchr = "2.8.0"
+gpio = "0.4.1"

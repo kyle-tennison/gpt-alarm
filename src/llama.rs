@@ -126,8 +126,13 @@ pub async fn is_healthy() -> bool {
 pub async fn start_server() -> Job {
     // spin up a llama server
     println!("rust: starting server in new thread");
+
+
+    let exec = std::env::var("LLAMA_SERVER_BIN").unwrap_or(LLAMA_SERVER_BIN.to_string());
+
+    println!("rut: using the executable at {exec}");
     let handle = thread::spawn(|| {
-        Exec::cmd(LLAMA_SERVER_BIN)
+        Exec::cmd(exec)
             .arg("-hf")
             .arg(HF_MODEL)
             .arg("--host")
@@ -136,8 +141,8 @@ pub async fn start_server() -> Job {
             .arg(LLAMA_PORT.to_string())
             .arg("--parallel")
             .arg(NUM_PARALLEL.to_string())
-            .stdout(Redirection::Null)
-            .stderr(Redirection::Null)
+            // .stdout(Redirection::Null)
+            // .stderr(Redirection::Null)
             .start()
             .expect("llama crashed on start")
     });

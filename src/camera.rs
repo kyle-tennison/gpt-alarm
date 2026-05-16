@@ -1,106 +1,130 @@
-use base64::{self, Engine};
-use image::{ImageFormat};
-use nokhwa::{
-    self,
-    pixel_format::RgbFormat,
-    utils::{CameraIndex, RequestedFormat, RequestedFormatType, Resolution},
-};
-use std::{
-    collections::VecDeque, io::Cursor, path::Path, sync::{Arc, Mutex}, thread, time::{Duration, Instant}
-};
+extern crate gstreamer as gst;
+use std::{io::{Read, Write}, thread, time::{Duration, Instant}};
+use gst::{MessageType, glib::{object::ObjectExt, value::ToValue}, prelude::{ElementExt, GstBinExtManual, GstObjectExt}};
+use gstreamer::prelude::ElementExtManual;
 
-pub struct Camera<'a> {
-    _workdir: &'a Path,
-    frame_queue: Arc<Mutex<VecDeque<String>>>,
+const BUFFER_LOCATION: &str = "/tmp/gpt-alarm";
+const JPEG_EOF: [u8; 2] = *b"\xFF\xD8";
+
+pub struct Camera {
+    pipeline: gst::Pipeline
 }
 
-impl<'a> Camera<'a> {
-    pub fn new(workdir: &'a Path) -> Camera<'a> {
-        Camera {
-            _workdir: workdir,
-            frame_queue: Arc::new(Mutex::new(VecDeque::new())),
-        }
+impl Camera {
+
+    pub fn build() -> Self {
+
+        gst::init().unwrap();
+
+        let source = gst::ElementFactory::make("nvarguscamerasrc")
+            .name("source")
+            .build()
+            .expect("could not create source element.");
+
+        let enc = gst::ElementFactory::make("nvjpegenc")
+            .name("enc")
+            .build()
+            .expect("could not create encoder.");
+
+        let caps = gst::Caps::builder("image/jpeg")
+            .field("width", 1280)
+            .field("height", 720)
+            .build();
+
+        let sink = gst::ElementFactory::make("filesink")
+            .name("sink")
+            .property_from_str("location", BUFFER_LOCATION)
+            .property_from_str("buffer-mode", "2")
+            .build()
+            .expect("could not create sink element.");
+
+        let pipeline = gst::Pipeline::with_name("pipeline");
+        
+        pipeline.add_many([
+            &source,
+            &enc,
+            &sink
+        ]).expect("unable to add elements to pipeline");
+        
+        source.link(&enc).expect("failed to link src to jpg encoder");
+        enc.link_filtered(&sink, &caps).expect("failed to link encoder to sink");
+
+        println!("info: gst pipeline constructed successfully");
+
+        Camera {pipeline}
     }
+    
+    pub fn run_forever(&self) {
+        self.pipeline.set_state(gst::State::Playing)
+        .expect("failed to start playing pipeline");
 
-    pub fn begin_stream(&self) {
-        let frame_queue = self.frame_queue.clone().to_owned();
+        println!("info: pipeline started");
 
-        thread::spawn(move || {
-            println!("rust: starting up camera");
-            let mut ncam = nokhwa::Camera::new(
-                CameraIndex::Index(0),
-                RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution),
-            )
-            .expect("failed to build ncam camera");
+        let bus = self.pipeline.bus().unwrap();
+        for msg in bus.iter_timed_filtered(
+            gst::ClockTime::NONE,
+            &[MessageType::Error, MessageType::Eos],
+        ) {
+            use gst::MessageView;
 
-            ncam.open_stream().unwrap();
-
-            // Uncommment the line below to see what resolutions are natively compatible
-            // we wanna set this here bc its expensive to resize manually
-            // println!("{:#?}", ncam.compatible_list_by_resolution(nokhwa::utils::FrameFormat::RAWRGB));
-            ncam.set_resolution(Resolution {
-                width_x: 640,
-                height_y: 480,
-            })
-            .unwrap();
-
-            // take a few test frames to let exposure settle
-            for _ in 1..10 {
-                ncam.frame().expect("frame capture failed");
-            }
-
-            'forev: loop {
-
-                let guard = frame_queue.lock().unwrap();
-                if guard.len() > 2 {
-                    drop(guard);
-                    thread::sleep(Duration::from_millis(100));
-                    continue 'forev;
+            match msg.view() {
+                MessageView::Error(err) => {
+                    eprintln!(
+                        "Error received from element {:?}: {}",
+                        err.src().map(|s| s.path_string()),
+                        err.error()
+                    );
+                    eprintln!("Debugging information: {:?}", err.debug());
+                    break;
                 }
-                drop(guard);
-
-                println!("rust: capturing new frame");
-                let start = Instant::now();
-                let frame = ncam.frame().expect("frame capture failed");
-
-                let raw_buf = frame
-                    .decode_image::<RgbFormat>()
-                    .expect("failed to decode frame");
-
-                // write to png
-                let mut png_buf = Cursor::new(Vec::<u8>::new());
-                raw_buf.write_to(&mut png_buf, ImageFormat::Png).unwrap();
-                let png_buf = png_buf.into_inner();
-
-                let enc_base64 = base64::engine::general_purpose::STANDARD.encode(png_buf);
-
-                println!("Captured frame in {}s", (Instant::now()-start).as_secs_f32());
-
-                let mut guard = frame_queue.lock().unwrap();
-                guard.push_front(enc_base64);
-                drop(guard)
-            }
-        });
-    }
-
-    /// Takes an image, returns as base64 JSON
-    pub fn take_image(&mut self) -> String {
-        let start_time = Instant::now();
-
-        loop {
-            let mut guard = self.frame_queue.lock().unwrap();
-            let value = guard.pop_back();
-            drop(guard);
-
-            if let Some(base64_data) = value {
-                let delta = (Instant::now() - start_time).as_secs_f32();
-                println!("rust: recorded saved in {delta}s");
-                return base64_data;
-            } else {
-                println!("rust: waiting for inbound image");
-                println!("\x07");
-                thread::sleep(Duration::from_secs(1));
+                MessageView::Eos(..) => break,
+                _ => (),
             }
         }
+
+        self.pipeline
+            .set_state(gst::State::Null)
+            .expect("Unable to set the pipeline to the `Null` state");
+
     }
+
+
+    pub fn fetch_frame_bytes() -> Vec<u8>{
+        let mut jpeg_buffer: Vec<u8> = Vec::with_capacity(250_000);
+
+        let mut fifo = std::fs::File::open(BUFFER_LOCATION).expect("could not find fifo file");
+        
+        let finder = memchr::memmem::Finder::new(&JPEG_EOF);
+        let mut stack_buf: [u8; 4096] = [0;4096];
+        let mut in_frame = false; // flag to see if we're in the frame we want
+
+        let start = Instant::now();
+        println!("info: waiting for jpeg");
+        'fifo: loop {
+            fifo.read_exact(&mut stack_buf).expect("Unable to read from fifo");
+            
+            // this triggers if the diliminer is found
+            if let Some(pos) = finder.find(&stack_buf) {
+                if !in_frame{
+                    jpeg_buffer.extend_from_slice(&stack_buf[pos..]); // throw out anything before frame
+                    in_frame = true;
+                }
+                else {
+                    // if we find a second delimiter, that means we are done reading 
+                    jpeg_buffer.extend_from_slice(&stack_buf[..pos]);
+                    break 'fifo;
+                }
+            }
+            else{
+                if in_frame {
+                    jpeg_buffer.extend_from_slice(&stack_buf);
+                }
+            }
+        }
+        let elapsed = Instant::now() - start;
+        println!("info: collected jepg in {:.8} seconds", elapsed.as_secs_f32());
+
+        jpeg_buffer
+    }
+
 }
