@@ -1,7 +1,8 @@
 extern crate gstreamer as gst;
-use std::{io::{Read, Write}, thread, time::{Duration, Instant}};
+use std::{io::{Read, Write}, time::{Duration, Instant}};
 use gst::{MessageType, glib::{object::ObjectExt, value::ToValue}, prelude::{ElementExt, GstBinExtManual, GstObjectExt}};
 use gstreamer::prelude::ElementExtManual;
+use tokio::{fs, io::{AsyncReadExt, AsyncWriteExt}};
 
 const BUFFER_LOCATION: &str = "/tmp/gpt-alarm";
 const JPEG_EOF: [u8; 2] = *b"\xFF\xD8";
@@ -12,7 +13,8 @@ pub struct Camera {
 
 impl Camera {
 
-    pub fn build() -> Self {
+    /// Setup and start gst stream
+    pub fn start() -> Self {
 
         gst::init().unwrap();
 
@@ -89,10 +91,19 @@ impl Camera {
     }
 
 
-    pub fn fetch_frame_bytes() -> Vec<u8>{
+    /// Fetches the most recent frame in JPEG bytes
+    pub async fn fetch_frame_bytes() -> Vec<u8>{
         let mut jpeg_buffer: Vec<u8> = Vec::with_capacity(250_000);
 
-        let mut fifo = std::fs::File::open(BUFFER_LOCATION).expect("could not find fifo file");
+        let mut fifo: fs::File = loop {
+            match fs::File::open(BUFFER_LOCATION).await {
+                Ok(file) => {break file},
+                Err(_) => {
+                    println!("warning: waiting for fifo creation");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        };
         
         let finder = memchr::memmem::Finder::new(&JPEG_EOF);
         let mut stack_buf: [u8; 4096] = [0;4096];
@@ -101,7 +112,20 @@ impl Camera {
         let start = Instant::now();
         println!("info: waiting for jpeg");
         'fifo: loop {
-            fifo.read_exact(&mut stack_buf).expect("Unable to read from fifo");
+            let fifo_read = fifo.read_exact(&mut stack_buf).await;
+
+            if fifo_read.is_err() {
+                let err = fifo_read.err().unwrap();
+                if err.kind() == std::io::ErrorKind::UnexpectedEof {
+                    println!("warn: fifo not full yet");
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    continue 'fifo;
+                }
+                else {
+                    panic!("unexpected fifo error");
+                }
+            }
+        
             
             // this triggers if the diliminer is found
             if let Some(pos) = finder.find(&stack_buf) {
@@ -125,6 +149,15 @@ impl Camera {
         println!("info: collected jepg in {:.8} seconds", elapsed.as_secs_f32());
 
         jpeg_buffer
+    }
+
+    /// Saves a photo to a file
+    pub async fn save_photo(filename: &str) {
+        let bytes = Self::fetch_frame_bytes().await;
+        let mut image_file = fs::File::create(filename).await.unwrap();
+        image_file.write_all(&bytes).await.expect("failed to save image");
+
+        println!("info: saved photo. {:?}", image_file);
     }
 
 }
