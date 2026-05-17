@@ -10,23 +10,16 @@ mod camera;
 mod llama;
 mod sound;
 
-use gpio::{GpioIn, GpioOut};
-
 const PROMPT: &str = "Is there a person in the bed? This is not a trick question. Only respond yes if he is visible. Please respond yes or no.";
 
-fn main() {
-    let mut gpio9 = gpio::sysfs::SysFsGpioOutput::open(9).unwrap();
-    gpio9.set_high();
-    thread::sleep(Duration::from_secs(1));
-    gpio9.set_low();
-
-}
 
 // main thread (mt)
-fn main_2() {
+fn main() {
 
     // camera needs to run on the main thread
     let mt_camera = Camera::build();
+
+    return;
 
     // main program runs here
     let at = thread::spawn(|| {
@@ -67,6 +60,9 @@ async fn vlm_loop() {
         let running_avg = running_hist.iter().map(|f| *f).sum::<f32>() / (running_hist.len() as f32);
 
         println!("rust: this iter: {result}. \tAverage: {running_avg}");
+
+        
+
 
     }
 

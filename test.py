@@ -2,7 +2,7 @@ import Jetson.GPIO as GPIO
 import time
 
 PIN_NO = 7 # buzzer
-PIN_NO = 15 # light
+# PIN_NO = 15 # light
 
 # Use physical 40-pin board numbering
 GPIO.setmode(GPIO.BOARD)
