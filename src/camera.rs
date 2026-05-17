@@ -1,21 +1,25 @@
 extern crate gstreamer as gst;
-use std::{io::{Read, Write}, time::{Duration, Instant}};
-use gst::{MessageType, glib::{object::ObjectExt, value::ToValue}, prelude::{ElementExt, GstBinExtManual, GstObjectExt}};
+use gst::{
+    MessageType,
+    prelude::{ElementExt, GstBinExtManual, GstObjectExt},
+};
 use gstreamer::prelude::ElementExtManual;
-use tokio::{fs, io::{AsyncReadExt, AsyncWriteExt}};
+use std::time::{Duration, Instant};
+use tokio::{
+    fs,
+    io::{AsyncReadExt, AsyncWriteExt},
+};
 
 const BUFFER_LOCATION: &str = "/tmp/gpt-alarm";
 const JPEG_EOF: [u8; 2] = *b"\xFF\xD8";
 
 pub struct Camera {
-    pipeline: gst::Pipeline
+    pipeline: gst::Pipeline,
 }
 
 impl Camera {
-
     /// Setup and start gst stream
     pub fn start() -> Self {
-
         gst::init().unwrap();
 
         let source = gst::ElementFactory::make("nvarguscamerasrc")
@@ -41,24 +45,26 @@ impl Camera {
             .expect("could not create sink element.");
 
         let pipeline = gst::Pipeline::with_name("pipeline");
-        
-        pipeline.add_many([
-            &source,
-            &enc,
-            &sink
-        ]).expect("unable to add elements to pipeline");
-        
-        source.link(&enc).expect("failed to link src to jpg encoder");
-        enc.link_filtered(&sink, &caps).expect("failed to link encoder to sink");
+
+        pipeline
+            .add_many([&source, &enc, &sink])
+            .expect("unable to add elements to pipeline");
+
+        source
+            .link(&enc)
+            .expect("failed to link src to jpg encoder");
+        enc.link_filtered(&sink, &caps)
+            .expect("failed to link encoder to sink");
 
         println!("info: gst pipeline constructed successfully");
 
-        Camera {pipeline}
+        Camera { pipeline }
     }
-    
+
     pub fn run_forever(&self) {
-        self.pipeline.set_state(gst::State::Playing)
-        .expect("failed to start playing pipeline");
+        self.pipeline
+            .set_state(gst::State::Playing)
+            .expect("failed to start playing pipeline");
 
         println!("info: pipeline started");
 
@@ -87,26 +93,24 @@ impl Camera {
         self.pipeline
             .set_state(gst::State::Null)
             .expect("Unable to set the pipeline to the `Null` state");
-
     }
 
-
     /// Fetches the most recent frame in JPEG bytes
-    pub async fn fetch_frame_bytes() -> Vec<u8>{
+    pub async fn fetch_frame_bytes() -> Vec<u8> {
         let mut jpeg_buffer: Vec<u8> = Vec::with_capacity(250_000);
 
         let mut fifo: fs::File = loop {
             match fs::File::open(BUFFER_LOCATION).await {
-                Ok(file) => {break file},
+                Ok(file) => break file,
                 Err(_) => {
                     println!("warning: waiting for fifo creation");
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             }
         };
-        
+
         let finder = memchr::memmem::Finder::new(&JPEG_EOF);
-        let mut stack_buf: [u8; 4096] = [0;4096];
+        let mut stack_buf: [u8; 4096] = [0; 4096];
         let mut in_frame = false; // flag to see if we're in the frame we want
 
         let start = Instant::now();
@@ -120,33 +124,32 @@ impl Camera {
                     println!("warn: fifo not full yet");
                     tokio::time::sleep(Duration::from_millis(10)).await;
                     continue 'fifo;
-                }
-                else {
+                } else {
                     panic!("unexpected fifo error");
                 }
             }
-        
-            
+
             // this triggers if the diliminer is found
             if let Some(pos) = finder.find(&stack_buf) {
-                if !in_frame{
+                if !in_frame {
                     jpeg_buffer.extend_from_slice(&stack_buf[pos..]); // throw out anything before frame
                     in_frame = true;
-                }
-                else {
-                    // if we find a second delimiter, that means we are done reading 
+                } else {
+                    // if we find a second delimiter, that means we are done reading
                     jpeg_buffer.extend_from_slice(&stack_buf[..pos]);
                     break 'fifo;
                 }
-            }
-            else{
+            } else {
                 if in_frame {
                     jpeg_buffer.extend_from_slice(&stack_buf);
                 }
             }
         }
         let elapsed = Instant::now() - start;
-        println!("info: collected jepg in {:.8} seconds", elapsed.as_secs_f32());
+        println!(
+            "info: collected jepg in {:.8} seconds",
+            elapsed.as_secs_f32()
+        );
 
         jpeg_buffer
     }
@@ -155,9 +158,11 @@ impl Camera {
     pub async fn save_photo(filename: &str) {
         let bytes = Self::fetch_frame_bytes().await;
         let mut image_file = fs::File::create(filename).await.unwrap();
-        image_file.write_all(&bytes).await.expect("failed to save image");
+        image_file
+            .write_all(&bytes)
+            .await
+            .expect("failed to save image");
 
         println!("info: saved photo. {:?}", image_file);
     }
-
 }

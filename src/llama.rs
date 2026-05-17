@@ -1,5 +1,4 @@
 use core::time;
-use reqwest;
 use serde_json::{Value, json};
 use std::{
     thread,
@@ -126,7 +125,6 @@ pub async fn is_healthy() -> bool {
 pub async fn start_server() -> Job {
     // spin up a llama server
     println!("rust: starting server in new thread");
-
 
     let exec = std::env::var("LLAMA_SERVER_BIN").unwrap_or(LLAMA_SERVER_BIN.to_string());
 

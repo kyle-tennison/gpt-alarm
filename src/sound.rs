@@ -3,7 +3,6 @@ use tokio::sync::mpsc::{self, error::TryRecvError};
 
 use crate::gpio::GPIOUtil;
 
-
 #[derive(PartialEq, Debug)]
 pub enum AlarmState {
     Disarmed,
@@ -11,12 +10,11 @@ pub enum AlarmState {
     Test(u8),
 }
 
-
-pub struct SoundUtil{
+pub struct SoundUtil {
     tx: mpsc::Sender<AlarmState>,
 }
 
-impl SoundUtil{
+impl SoundUtil {
     pub fn new(gpio_util: Arc<GPIOUtil>) -> Self {
         let (tx, rx) = mpsc::channel::<AlarmState>(1);
 
@@ -26,23 +24,21 @@ impl SoundUtil{
             Self::async_worker(rx, gpio_ref).await;
         });
 
-        SoundUtil {tx}
+        SoundUtil { tx }
     }
 
     async fn async_worker(mut rx: mpsc::Receiver<AlarmState>, gpio_util: Arc<GPIOUtil>) {
-
         println!("info: sound task started");
         let mut alarm_state = AlarmState::Disarmed;
 
         loop {
-
             match rx.try_recv() {
                 Ok(update) => {
                     alarm_state = update;
                     println!("debug: updated alarm state to {:?}", alarm_state);
-                },
+                }
                 Err(TryRecvError::Empty) => (),
-                Err(TryRecvError::Disconnected) => {break},
+                Err(TryRecvError::Disconnected) => break,
             };
 
             match alarm_state {
@@ -57,7 +53,7 @@ impl SoundUtil{
                     gpio_util.set_buzzer(false);
 
                     tokio::time::sleep(Duration::from_millis(750)).await;
-                },
+                }
                 AlarmState::Test(n) => {
                     for _ in 0..n {
                         gpio_util.set_buzzer(true);
@@ -67,14 +63,17 @@ impl SoundUtil{
                     }
                     alarm_state = AlarmState::Disarmed;
                 }
-                _ => {tokio::time::sleep(Duration::from_millis(500)).await}
+                _ => tokio::time::sleep(Duration::from_millis(500)).await,
             };
         }
         println!("warn: sound async worker exiting")
     }
 
     pub async fn set_state(&self, state: AlarmState) {
-        self.tx.send(state).await.expect("unable to update SoundUtil state");
+        self.tx
+            .send(state)
+            .await
+            .expect("unable to update SoundUtil state");
     }
 
     pub async fn testsound(&self) {
