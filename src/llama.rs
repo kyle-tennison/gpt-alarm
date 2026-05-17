@@ -7,11 +7,11 @@ use std::{
 };
 use subprocess::{Exec, Job, Redirection};
 
-const LLAMA_SERVER_BIN: &str = "/opt/homebrew/bin/llama-server"; // update by machine
+const LLAMA_SERVER_BIN: &str = "/home/linuxbrew/.linuxbrew/bin/llama-server"; // update by machine
 const HF_MODEL: &str = "LiquidAI/LFM2.5-VL-450M-GGUF";
 const LLAMA_PORT: usize = 8080;
 const LLAMA_HOST: &str = "127.0.0.1";
-const LLAMA_TTL: u64 = 60; // timeout for llama
+const LLAMA_TTL: u64 = 120; // timeout for llama
 const NUM_PARALLEL: usize = 4;
 
 // Will look through probability, return 'True' if the answer is True/Yes and false if the answer is `False/No`
@@ -130,6 +130,8 @@ pub async fn start_server() -> Job {
 
     let exec = std::env::var("LLAMA_SERVER_BIN").unwrap_or(LLAMA_SERVER_BIN.to_string());
 
+    let llama_log = std::fs::File::create("/tmp/gpt-alarm-llama.log").unwrap();
+
     println!("rut: using the executable at {exec}");
     let handle = thread::spawn(|| {
         Exec::cmd(exec)
@@ -141,8 +143,8 @@ pub async fn start_server() -> Job {
             .arg(LLAMA_PORT.to_string())
             .arg("--parallel")
             .arg(NUM_PARALLEL.to_string())
-            // .stdout(Redirection::Null)
-            // .stderr(Redirection::Null)
+            .stdout(Redirection::File(llama_log))
+            .stderr(Redirection::Merge)
             .start()
             .expect("llama crashed on start")
     });
