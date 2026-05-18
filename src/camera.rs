@@ -1,23 +1,21 @@
 extern crate gstreamer as gst;
+extern crate gstreamer_app as gst_app;
 use gst::{
     MessageType,
     prelude::{ElementExt, GstBinExtManual, GstObjectExt},
 };
-use gstreamer::prelude::ElementExtManual;
-use std::time::{Duration, Instant};
+use gstreamer::{glib::object::Cast, prelude::ElementExtManual};
+use std::{sync::{Arc, Mutex, mpsc}, time::{Duration, Instant}};
 use tokio::{
-    fs,
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncWriteExt,
 };
 
-const BUFFER_LOCATION: &str = "/tmp/gpt-alarm";
-const JPEG_EOF: [u8; 2] = *b"\xFF\xD8";
-
-pub struct Camera {
+pub struct CamService {
     pipeline: gst::Pipeline,
+    ff: Option<FrameFetcher>
 }
 
-impl Camera {
+impl CamService {
     /// Setup and start gst stream
     pub fn start() -> Self {
         gst::init().unwrap();
@@ -33,32 +31,75 @@ impl Camera {
             .expect("could not create encoder.");
 
         let caps = gst::Caps::builder("image/jpeg")
-            .field("width", 1280)
-            .field("height", 720)
+            .field("width", 854)
+            .field("height", 480)
             .build();
 
-        let sink = gst::ElementFactory::make("filesink")
-            .name("sink")
-            .property_from_str("location", BUFFER_LOCATION)
-            .property_from_str("buffer-mode", "2")
+
+
+        let (tx, rx) = mpsc::channel::<Vec<u8>>();
+        let req_frame_flag = Arc::new(Mutex::new(false));
+        let req_frame_flag_closure = req_frame_flag.clone();
+
+        let callbacks = gst_app::AppSinkCallbacks::builder()
+            .new_sample(move |aps| {
+
+                match req_frame_flag_closure.try_lock() {
+                    Ok(mut guard) => {
+                        if *guard {
+                            *guard = false;
+                            let sample = aps.pull_sample().expect("failed to pull sample");
+                            tx.send(Self::extract_bytes(sample)).unwrap();
+                            println!("debug: sent sample");
+                        }
+                    }
+                    Err(_) => {
+                        println!("debug: mutex crash, skipping image");
+                    },
+                }
+
+                Ok(gst::FlowSuccess::Ok)
+            })
+            .build();
+
+        let appsink = gst_app::AppSink::builder()
+            .callbacks(callbacks)
+            .name("appsink")
+            .max_buffers(2)
+            .drop(true)
             .build()
-            .expect("could not create sink element.");
+            .dynamic_cast().unwrap();
+
 
         let pipeline = gst::Pipeline::with_name("pipeline");
 
         pipeline
-            .add_many([&source, &enc, &sink])
+            .add_many([&source, &enc, &appsink])
             .expect("unable to add elements to pipeline");
 
         source
             .link(&enc)
             .expect("failed to link src to jpg encoder");
-        enc.link_filtered(&sink, &caps)
+        enc.link_filtered(&appsink, &caps)
             .expect("failed to link encoder to sink");
 
         println!("info: gst pipeline constructed successfully");
 
-        Camera { pipeline }
+        let ff = FrameFetcher { req_frame_flag: req_frame_flag, frame_rx: rx };
+
+        CamService { pipeline, ff: Some(ff) }
+    }
+
+    pub fn extract_bytes(sample: gst::Sample) -> Vec<u8> {
+        sample
+        .buffer()
+        .and_then(|buffer| buffer.map_readable().ok())
+        .map(|map| map.as_slice().to_vec())
+        .unwrap_or_default()
+    }
+
+    pub fn get_fetcher(&mut self) -> Option<FrameFetcher> {
+        self.ff.take()
     }
 
     pub fn run_forever(&self) {
@@ -94,75 +135,55 @@ impl Camera {
             .set_state(gst::State::Null)
             .expect("Unable to set the pipeline to the `Null` state");
     }
+}
 
-    /// Fetches the most recent frame in JPEG bytes
-    pub async fn fetch_frame_bytes() -> Vec<u8> {
-        let mut jpeg_buffer: Vec<u8> = Vec::with_capacity(250_000);
+impl Drop for CamService {
+    fn drop(&mut self) {
+        println!("info: CamService starting cleaning up")
+    }
+}
 
-        let mut fifo: fs::File = loop {
-            match fs::File::open(BUFFER_LOCATION).await {
-                Ok(file) => break file,
-                Err(_) => {
-                    println!("warning: waiting for fifo creation");
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            }
-        };
 
-        let finder = memchr::memmem::Finder::new(&JPEG_EOF);
-        let mut stack_buf: [u8; 4096] = [0; 4096];
-        let mut in_frame = false; // flag to see if we're in the frame we want
 
-        let start = Instant::now();
-        println!("info: waiting for jpeg");
-        'fifo: loop {
-            let fifo_read = fifo.read_exact(&mut stack_buf).await;
 
-            if fifo_read.is_err() {
-                let err = fifo_read.err().unwrap();
-                if err.kind() == std::io::ErrorKind::UnexpectedEof {
-                    println!("warn: fifo not full yet");
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    continue 'fifo;
-                } else {
-                    panic!("unexpected fifo error");
-                }
-            }
+pub struct FrameFetcher {
+    req_frame_flag: Arc<Mutex<bool>>,
+    frame_rx: mpsc::Receiver<Vec<u8>>,
+}
 
-            // this triggers if the diliminer is found
-            if let Some(pos) = finder.find(&stack_buf) {
-                if !in_frame {
-                    jpeg_buffer.extend_from_slice(&stack_buf[pos..]); // throw out anything before frame
-                    in_frame = true;
-                } else {
-                    // if we find a second delimiter, that means we are done reading
-                    jpeg_buffer.extend_from_slice(&stack_buf[..pos]);
-                    break 'fifo;
-                }
-            } else {
-                if in_frame {
-                    jpeg_buffer.extend_from_slice(&stack_buf);
-                }
-            }
+impl FrameFetcher {
+
+    pub fn fetch_frame_bytes(&self) -> Vec<u8>{
+        let fetch_start = Instant::now();
+        // requrest frame
+        {
+            let mut guard = self.req_frame_flag.lock().unwrap();
+            *guard = true;
         }
-        let elapsed = Instant::now() - start;
-        println!(
-            "info: collected jepg in {:.8} seconds",
-            elapsed.as_secs_f32()
-        );
+    
+        // wait for inbound frame
+        let jpeg_buffer = self.frame_rx.recv_timeout(Duration::from_secs(10)).expect("rame fetch timed out");    
+            
+        let elapsed = Instant::now() - fetch_start;
+        println!("info: collected jpeg in {:.8} seconds", elapsed.as_secs_f32());
 
         jpeg_buffer
     }
 
-    /// Saves a photo to a file
-    pub async fn save_photo(filename: &str) {
-        let bytes = Self::fetch_frame_bytes().await;
-        let mut image_file = fs::File::create(filename).await.unwrap();
+    // Writes image bytes to a jpg file
+    pub async fn save_photo_bytes(&self, filename: &str, bytes: &[u8]) {
+        let mut image_file = tokio::fs::File::create(filename).await.unwrap();
         image_file
             .write_all(&bytes)
             .await
             .expect("failed to save image");
 
         println!("info: saved photo. {:?}", image_file);
+    }
+
+    /// Takes and saves a photo to a file
+    pub async fn save_photo(&self, filename: &str) {
+        let bytes = self.fetch_frame_bytes();
+        self.save_photo_bytes(filename, &bytes).await;
     }
 }
