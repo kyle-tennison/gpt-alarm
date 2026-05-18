@@ -7,6 +7,7 @@ use crate::camera::{CamService, FrameFetcher};
 
 mod camera;
 mod gpio;
+mod led;
 mod llama;
 mod sound;
 
