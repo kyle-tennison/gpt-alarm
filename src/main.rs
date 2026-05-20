@@ -1,41 +1,127 @@
-use tempdir::TempDir;
+#![feature(async_drop)]
+
+use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
+
+use base64::Engine;
+use tokio::{runtime::Runtime, time::Instant};
+
+use crate::camera::{CamService, FrameFetcher};
 
 mod camera;
+mod gpio;
+mod led;
 mod llama;
 mod sound;
 
-const PROMPT: &str = "Is there a person in the bed? This is not a trick question. Only respond yes if he is visible. Please respond yes or no.";
+const PROMPT: &str = "Is there a person *laying* in the bed? This is not a trick question. Only respond yes if he is visibly laying. Please respond yes or no, one word.";
+const CONFIDENCE_THRESHOLD: f32 = 0.5;
+const PRELIM_LAUNCH_SCRIPT: &str = "launch.sh";
 
-#[tokio::main(flavor = "local")]
-async fn main() {
-    println!("Starting up llama.cpp");
+// main thread (mt)
+fn main() {
+    // force root
+    let is_root = unsafe { libc::getuid() } == 0;
+    assert!(is_root, "must be sudo for GPIO");
+
+    // run preliminary launch script to configure os
+    let script = std::env::var("PRELIM_LAUNCH_SCRIPT").unwrap_or(PRELIM_LAUNCH_SCRIPT.to_string());
+    std::process::Command::new("bash")
+        .arg(script)
+        .spawn()
+        .expect("preliminary script failed on start")
+        .wait()
+        .expect("preliminary process failed");
+    println!("info: ran launch script");
+
+    // camera servie needs to run on the main thread
+    let mut cam_service = CamService::start();
+    let frame_fetcher = cam_service.get_fetcher().unwrap();
+
+    // main program runs here
+    let at = thread::Builder::new()
+        .name("auxillary-thread".to_string())
+        .spawn(move || {
+            let rt = Runtime::new().expect("failed to create tokio runtime");
+            rt.block_on(async {
+                at_prog(frame_fetcher).await;
+            });
+        })
+        .unwrap();
+
+    // need to do some bs to get this
+    let at = Rc::new(RefCell::new(Some(at)));
+    let at_closure = at.clone();
+
+    let poll_alive = move || {
+        at_closure
+            .borrow()
+            .as_ref()
+            .is_some_and(|f| !f.is_finished())
+    };
+
+    cam_service.run_forever(poll_alive);
+    eprintln!("error: camera loop exited");
+
+    at.borrow_mut().take().unwrap().join().unwrap()
+}
+
+// auxillary thread program. everything besides camera IO runs here
+async fn at_prog(frame_fetcher: FrameFetcher) {
+    println!("info: start at_prog");
+    let gpio_util = Arc::new(gpio::GPIOUtil::build());
+    let sound_util = sound::SoundUtil::new(gpio_util.clone());
+    let led_util = led::LEDUtil::new(gpio_util.clone());
+
+    // some startup testing
+    sound_util.testsound().await;
+    _ = tokio::fs::create_dir("startup-samples").await;
+    for i in 0..3 {
+        frame_fetcher
+            .save_photo(format!("startup-samples/starup-{i}.jpg").as_str())
+            .await;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+
+    println!("info: starting up llama.cpp");
+    led_util.set_state(led::LEDState::Wait);
     let _job = llama::start_server().await;
+    led_util.set_state(led::LEDState::Nominal);
+    sound_util.signal_start().await;
 
-    let tmp_dir = TempDir::new("gpt-alarm").unwrap().into_path();
-    let mut camera = camera::Camera::new(&tmp_dir);
-    let sound = sound::SoundUtil::new();
+    vlm_loop(sound_util, frame_fetcher).await;
+}
 
-    camera.begin_stream();
+async fn vlm_loop(sound_util: sound::SoundUtil, frame_fetcher: FrameFetcher) {
+    let mut running_hist: [f32; 5] = [0.; 5]; // starts as false
 
-    println!("rust: beginning main loop");
-
-    let mut running_hist: Vec<f32> = Vec::with_capacity(size_of::<f32>() * 5);
-
+    let mut last_iter_timestamp = Instant::now();
     loop {
-        let frame = camera.take_image();
-        let result = llama::multimodal_bool_completion(PROMPT, &frame, 30).await;
+        let frame: Vec<u8> = frame_fetcher.fetch_frame_bytes();
 
-        running_hist.insert(0, if result { 1. } else { 0. });
+        frame_fetcher
+            .save_photo_bytes("debug_frame.jpg", &frame)
+            .await;
 
-        if running_hist.len() > 6 {
-            running_hist.pop();
+        let frame_base64 = base64::engine::general_purpose::STANDARD.encode(frame);
+
+        let result = llama::multimodal_bool_completion(PROMPT, &frame_base64, 30).await;
+
+        running_hist.rotate_right(1);
+        running_hist[0] = result as u8 as f32;
+
+        let running_avg = running_hist.iter().copied().sum::<f32>() / (running_hist.len() as f32);
+
+        if running_avg > CONFIDENCE_THRESHOLD {
+            sound_util.set_state(sound::AlarmState::Active).await;
+        } else {
+            sound_util.set_state(sound::AlarmState::Disarmed).await;
         }
 
-        let running_avg =
-            running_hist.iter().map(|f| *f).sum::<f32>() / (running_hist.len() as f32);
-
-        println!("rust: this iter: {result}. \tAverage: {running_avg}");
-
-        sound.update_state(running_avg > 0.5);
+        let this_iter_timestamp = Instant::now();
+        let elapsed = (this_iter_timestamp - last_iter_timestamp).as_secs_f32();
+        last_iter_timestamp = this_iter_timestamp;
+        println!(
+            "\n === this iter: {result} - running avg {running_avg:.2} - elapsed {elapsed:.3} s === \n "
+        );
     }
 }

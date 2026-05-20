@@ -1,5 +1,4 @@
 use core::time;
-use reqwest;
 use serde_json::{Value, json};
 use std::{
     thread,
@@ -7,12 +6,12 @@ use std::{
 };
 use subprocess::{Exec, Job, Redirection};
 
-const LLAMA_SERVER_BIN: &str = "/opt/homebrew/bin/llama-server"; // update by machine
+const LLAMA_SERVER_BIN: &str = "/opt/llama.cpp/build/bin/llama-server"; // update by machine
 const HF_MODEL: &str = "LiquidAI/LFM2.5-VL-450M-GGUF";
 const LLAMA_PORT: usize = 8080;
 const LLAMA_HOST: &str = "127.0.0.1";
-const LLAMA_TTL: u64 = 60; // timeout for llama
-const NUM_PARALLEL: usize = 4;
+const LLAMA_TTL: u64 = 120; // timeout for llama
+const NUM_PARALLEL: usize = 3;
 
 // Will look through probability, return 'True' if the answer is True/Yes and false if the answer is `False/No`
 pub async fn multimodal_bool_completion(
@@ -30,7 +29,7 @@ pub async fn multimodal_bool_completion(
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": format!("data:image/png;base64,{base64_image}")
+                            "url": format!("data:image/jpeg;base64,{base64_image}")
                         }
                     },
                     {
@@ -66,15 +65,17 @@ pub async fn multimodal_bool_completion(
     .expect("llama invocation failed");
 
     let json: Value = serde_json::from_str(&response_str).expect("invalid json from llama");
-    println!("rust: raw response {:#}", json);
+    // println!("rust: raw response {:#}", json);
 
     let mut true_prob: f64 = 0.;
     let mut false_prob: f64 = 0.;
     for item in json["choices"].as_array().unwrap() {
         let prob = 1.;
-        let token = item["message"]["content"].as_str().unwrap();
+        let agent_resp = item["message"]["content"].as_str().unwrap();
 
-        let token = token
+        println!("the repsone is '{agent_resp}'");
+
+        let token = agent_resp
             .split_ascii_whitespace()
             .next()
             .unwrap_or("Empty")
@@ -126,37 +127,67 @@ pub async fn is_healthy() -> bool {
 pub async fn start_server() -> Job {
     // spin up a llama server
     println!("rust: starting server in new thread");
-    let handle = thread::spawn(|| {
-        Exec::cmd(LLAMA_SERVER_BIN)
-            .arg("-hf")
-            .arg(HF_MODEL)
-            .arg("--host")
-            .arg(LLAMA_HOST)
-            .arg("--port")
-            .arg(LLAMA_PORT.to_string())
-            .arg("--parallel")
-            .arg(NUM_PARALLEL.to_string())
-            .stdout(Redirection::Null)
-            .stderr(Redirection::Null)
-            .start()
-            .expect("llama crashed on start")
-    });
+
+    let exec = std::env::var("LLAMA_SERVER_BIN").unwrap_or(LLAMA_SERVER_BIN.to_string());
+
+    let llama_log = std::fs::File::create("/tmp/gpt-alarm-llama.log").unwrap();
+
+    println!("rust: using the following executable for llama: {exec}");
+    let handle = thread::Builder::new()
+        .name("llama-monitor".to_string())
+        .spawn(|| {
+            let job = Exec::cmd(exec)
+                .arg("-hf")
+                .arg(HF_MODEL)
+                .arg("--host")
+                .arg(LLAMA_HOST)
+                .arg("--port")
+                .arg(LLAMA_PORT.to_string())
+                .arg("--cache-ram") // can't afford, also useless
+                .arg("0")
+                .arg("--parallel")
+                .arg(NUM_PARALLEL.to_string())
+                .stdout(Redirection::File(llama_log))
+                .stderr(Redirection::Merge)
+                .start()
+                .expect("llama crashed on start");
+
+            let status = job.wait_timeout(Duration::from_secs(10));
+            println!("debug: post-timeout status {:?}", &status);
+            if status.is_err() || status.is_ok_and(|s| s.is_some()) {
+                panic!("llama did not start successfully");
+            }
+            else {
+                println!("info: llama started successfully");
+            }
+            job
+        })
+        .unwrap();
+
     let start_time = Instant::now();
 
     // wait for it to go online
-    while (Instant::now() - start_time) < Duration::from_secs(LLAMA_TTL) {
+    loop {
         println!("rust: pinging llama...");
 
         if is_healthy().await {
             println!("rust: llama is running!");
-            break;
+            break handle.join().unwrap();
         }
+
+        if handle.is_finished() {
+            let ret = handle.join();
+            if ret.is_err() {
+                panic!("llama failed")
+            } else {
+                break ret.unwrap();
+            }
+        }
+
+        if (Instant::now() - start_time) >= Duration::from_secs(LLAMA_TTL) {
+            panic!("rust: llama timeout, killing")
+        }
+
         tokio::time::sleep(time::Duration::from_secs(1)).await;
     }
-
-    if (Instant::now() - start_time) >= Duration::from_secs(LLAMA_TTL) {
-        panic!("rust: llama timeout, killing")
-    }
-
-    handle.join().unwrap()
 }

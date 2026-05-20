@@ -1,106 +1,200 @@
-use base64::{self, Engine};
-use image::{ImageFormat};
-use nokhwa::{
-    self,
-    pixel_format::RgbFormat,
-    utils::{CameraIndex, RequestedFormat, RequestedFormatType, Resolution},
+extern crate gstreamer as gst;
+extern crate gstreamer_app as gst_app;
+use gst::{
+    MessageType,
+    prelude::{ElementExt, GstBinExtManual, GstObjectExt},
 };
+use gst::{MessageView, glib::object::Cast, prelude::ElementExtManual};
 use std::{
-    collections::VecDeque, io::Cursor, path::Path, sync::{Arc, Mutex}, thread, time::{Duration, Instant}
+    sync::{Arc, Mutex, mpsc},
+    time::{Duration, Instant},
 };
+use tokio::io::AsyncWriteExt;
 
-pub struct Camera<'a> {
-    _workdir: &'a Path,
-    frame_queue: Arc<Mutex<VecDeque<String>>>,
+pub struct CamService {
+    pipeline: gst::Pipeline,
+    ff: Option<FrameFetcher>,
 }
 
-impl<'a> Camera<'a> {
-    pub fn new(workdir: &'a Path) -> Camera<'a> {
-        Camera {
-            _workdir: workdir,
-            frame_queue: Arc::new(Mutex::new(VecDeque::new())),
-        }
-    }
+impl CamService {
+    /// Setup and start gst stream
+    pub fn start() -> Self {
+        gst::init().unwrap();
 
-    pub fn begin_stream(&self) {
-        let frame_queue = self.frame_queue.clone().to_owned();
+        let source = gst::ElementFactory::make("nvarguscamerasrc")
+            .name("source")
+            .build()
+            .expect("could not create source element.");
 
-        thread::spawn(move || {
-            println!("rust: starting up camera");
-            let mut ncam = nokhwa::Camera::new(
-                CameraIndex::Index(0),
-                RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution),
-            )
-            .expect("failed to build ncam camera");
+        let enc = gst::ElementFactory::make("nvjpegenc")
+            .name("enc")
+            .build()
+            .expect("could not create encoder.");
 
-            ncam.open_stream().unwrap();
+        let caps = gst::Caps::builder("image/jpeg")
+            .field("width", 854)
+            .field("height", 480)
+            .build();
 
-            // Uncommment the line below to see what resolutions are natively compatible
-            // we wanna set this here bc its expensive to resize manually
-            // println!("{:#?}", ncam.compatible_list_by_resolution(nokhwa::utils::FrameFormat::RAWRGB));
-            ncam.set_resolution(Resolution {
-                width_x: 640,
-                height_y: 480,
+        let (tx, rx) = mpsc::channel::<Vec<u8>>();
+        let req_frame_flag = Arc::new(Mutex::new(false));
+        let req_frame_flag_closure = req_frame_flag.clone();
+
+        let callbacks = gst_app::AppSinkCallbacks::builder()
+            .new_sample(move |aps| {
+                match req_frame_flag_closure.try_lock() {
+                    Ok(mut guard) => {
+                        if *guard {
+                            *guard = false;
+                            let sample = aps.pull_sample().expect("failed to pull sample");
+                            tx.send(Self::extract_bytes(sample)).unwrap();
+                            println!("debug: sent sample");
+                        }
+                    }
+                    Err(_) => {
+                        println!("debug: mutex crash, skipping image");
+                    }
+                }
+
+                Ok(gst::FlowSuccess::Ok)
             })
+            .build();
+
+        let appsink = gst_app::AppSink::builder()
+            .callbacks(callbacks)
+            .name("appsink")
+            .max_buffers(1)
+            .drop(true)
+            .build()
+            .dynamic_cast()
             .unwrap();
 
-            // take a few test frames to let exposure settle
-            for _ in 1..10 {
-                ncam.frame().expect("frame capture failed");
-            }
+        let pipeline = gst::Pipeline::with_name("pipeline");
 
-            'forev: loop {
+        pipeline
+            .add_many([&source, &enc, &appsink])
+            .expect("unable to add elements to pipeline");
 
-                let guard = frame_queue.lock().unwrap();
-                if guard.len() > 2 {
-                    drop(guard);
-                    thread::sleep(Duration::from_millis(100));
-                    continue 'forev;
-                }
-                drop(guard);
+        source
+            .link(&enc)
+            .expect("failed to link src to jpg encoder");
+        enc.link_filtered(&appsink, &caps)
+            .expect("failed to link encoder to sink");
 
-                println!("rust: capturing new frame");
-                let start = Instant::now();
-                let frame = ncam.frame().expect("frame capture failed");
+        println!("info: gst pipeline constructed successfully");
 
-                let raw_buf = frame
-                    .decode_image::<RgbFormat>()
-                    .expect("failed to decode frame");
+        let ff = FrameFetcher {
+            req_frame_flag: req_frame_flag,
+            frame_rx: rx,
+        };
 
-                // write to png
-                let mut png_buf = Cursor::new(Vec::<u8>::new());
-                raw_buf.write_to(&mut png_buf, ImageFormat::Png).unwrap();
-                let png_buf = png_buf.into_inner();
-
-                let enc_base64 = base64::engine::general_purpose::STANDARD.encode(png_buf);
-
-                println!("Captured frame in {}s", (Instant::now()-start).as_secs_f32());
-
-                let mut guard = frame_queue.lock().unwrap();
-                guard.push_front(enc_base64);
-                drop(guard)
-            }
-        });
+        CamService {
+            pipeline,
+            ff: Some(ff),
+        }
     }
 
-    /// Takes an image, returns as base64 JSON
-    pub fn take_image(&mut self) -> String {
-        let start_time = Instant::now();
+    pub fn extract_bytes(sample: gst::Sample) -> Vec<u8> {
+        sample
+            .buffer()
+            .and_then(|buffer| buffer.map_readable().ok())
+            .map(|map| map.as_slice().to_vec())
+            .unwrap_or_default()
+    }
 
-        loop {
-            let mut guard = self.frame_queue.lock().unwrap();
-            let value = guard.pop_back();
-            drop(guard);
+    pub fn get_fetcher(&mut self) -> Option<FrameFetcher> {
+        self.ff.take()
+    }
 
-            if let Some(base64_data) = value {
-                let delta = (Instant::now() - start_time).as_secs_f32();
-                println!("rust: recorded saved in {delta}s");
-                return base64_data;
-            } else {
-                println!("rust: waiting for inbound image");
-                println!("\x07");
-                thread::sleep(Duration::from_secs(1));
+    pub fn run_forever<F>(&self, is_alive: F)
+    where
+        F: Fn() -> bool,
+    {
+        self.pipeline
+            .set_state(gst::State::Playing)
+            .expect("failed to start playing pipeline");
+
+        println!("info: pipeline started");
+
+        let bus = self.pipeline.bus().unwrap();
+        for msg in bus.iter_timed_filtered(
+            gst::ClockTime::NONE,
+            &[MessageType::Error, MessageType::Eos],
+        ) {
+            if !is_alive() {
+                panic!("no longer alive");
+            }
+
+            match msg.view() {
+                MessageView::Error(err) => {
+                    eprintln!(
+                        "Error received from element {:?}: {}",
+                        err.src().map(|s| s.path_string()),
+                        err.error()
+                    );
+                    eprintln!("Debugging information: {:?}", err.debug());
+                    break;
+                }
+                MessageView::Eos(..) => break,
+                _ => (),
             }
         }
+
+        self.pipeline
+            .set_state(gst::State::Null)
+            .expect("Unable to set the pipeline to the `Null` state");
+    }
+}
+
+impl Drop for CamService {
+    fn drop(&mut self) {
+        println!("info: CamService starting cleaning up")
+    }
+}
+
+pub struct FrameFetcher {
+    req_frame_flag: Arc<Mutex<bool>>,
+    frame_rx: mpsc::Receiver<Vec<u8>>,
+}
+
+impl FrameFetcher {
+    pub fn fetch_frame_bytes(&self) -> Vec<u8> {
+        let fetch_start = Instant::now();
+        // requrest frame
+        {
+            let mut guard = self.req_frame_flag.lock().unwrap();
+            *guard = true;
+        }
+
+        // wait for inbound frame
+        let jpeg_buffer = self
+            .frame_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("rame fetch timed out");
+
+        let elapsed = Instant::now() - fetch_start;
+        println!(
+            "info: collected jpeg in {:.8} seconds",
+            elapsed.as_secs_f32()
+        );
+
+        jpeg_buffer
+    }
+
+    // Writes image bytes to a jpg file
+    pub async fn save_photo_bytes(&self, filename: &str, bytes: &[u8]) {
+        let mut image_file = tokio::fs::File::create(filename).await.unwrap();
+        image_file
+            .write_all(&bytes)
+            .await
+            .expect("failed to save image");
+
+        println!("info: saved photo. {:?}", image_file);
+    }
+
+    /// Takes and saves a photo to a file
+    pub async fn save_photo(&self, filename: &str) {
+        let bytes = self.fetch_frame_bytes();
+        self.save_photo_bytes(filename, &bytes).await;
     }
 }
