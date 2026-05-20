@@ -37,12 +37,12 @@ impl GPIOUtil {
     }
 
     pub fn set_buzzer(&self, state: bool) {
-        println!("debug: buzzer set to state {}", state);
+        // println!("debug: buzzer set to state {}", state);
         self.buzzer_handle.set_value(state as u8).unwrap();
     }
 
     pub fn set_led(&self, state: bool) {
-        println!("debug: led set to state {}", state);
+        // println!("debug: led set to state {}", state);
         self.led_handle.set_value(state as u8).unwrap();
     }
 }

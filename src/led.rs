@@ -11,37 +11,37 @@ const SLEEP_INTERVAL: std::time::Duration = Duration::from_millis(1000 / FLASH_P
 #[derive(Debug)]
 pub enum LEDState {
     Sleep,
+    Nominal,
     Wait,
     Startup,
 }
 
-impl LEDState{
-
+impl LEDState {
     fn num_flashes(&self) -> u8 {
         match &self {
             Self::Sleep => 1,
+            Self::Nominal => 2,
             Self::Wait => 3,
-            Self::Startup => 5,
+            Self::Startup => 4,
         }
     }
 }
 
-pub struct LEDIndicator {
+pub struct LEDUtil {
     tx: Sender<LEDState>,
 }
 
-impl LEDIndicator {
-
+impl LEDUtil {
     pub fn new(gpio_util: Arc<GPIOUtil>) -> Self {
         let (tx, rx) = mpsc::channel::<LEDState>();
-        
+
         let gpio_ref = gpio_util.clone();
-        
+
         tokio::spawn(async {
             Self::async_worker(rx, gpio_ref).await;
         });
-        
-        LEDIndicator { tx }
+
+        LEDUtil { tx }
     }
 
     async fn async_worker(rx: Receiver<LEDState>, gpio_ref: Arc<GPIOUtil>) {
@@ -63,13 +63,16 @@ impl LEDIndicator {
 
             for _ in 0..num_flash {
                 gpio_ref.set_led(true);
-                tokio::time::sleep(SLEEP_INTERVAL/2).await;
+                tokio::time::sleep(SLEEP_INTERVAL / 2).await;
                 gpio_ref.set_led(false);
-                tokio::time::sleep(SLEEP_INTERVAL/2).await;
+                tokio::time::sleep(SLEEP_INTERVAL / 2).await;
             }
 
             tokio::time::sleep(SLEEP_INTERVAL * num_dormant as u32).await;
-
         }
+    }
+
+    pub fn set_state(&self, state: LEDState) {
+        self.tx.send(state).unwrap();
     }
 }

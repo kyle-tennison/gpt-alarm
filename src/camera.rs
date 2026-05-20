@@ -4,15 +4,16 @@ use gst::{
     MessageType,
     prelude::{ElementExt, GstBinExtManual, GstObjectExt},
 };
-use gstreamer::{glib::object::Cast, prelude::ElementExtManual};
-use std::{sync::{Arc, Mutex, mpsc}, time::{Duration, Instant}};
-use tokio::{
-    io::AsyncWriteExt,
+use gst::{MessageView, glib::object::Cast, prelude::ElementExtManual};
+use std::{
+    sync::{Arc, Mutex, mpsc},
+    time::{Duration, Instant},
 };
+use tokio::io::AsyncWriteExt;
 
 pub struct CamService {
     pipeline: gst::Pipeline,
-    ff: Option<FrameFetcher>
+    ff: Option<FrameFetcher>,
 }
 
 impl CamService {
@@ -35,15 +36,12 @@ impl CamService {
             .field("height", 480)
             .build();
 
-
-
         let (tx, rx) = mpsc::channel::<Vec<u8>>();
         let req_frame_flag = Arc::new(Mutex::new(false));
         let req_frame_flag_closure = req_frame_flag.clone();
 
         let callbacks = gst_app::AppSinkCallbacks::builder()
             .new_sample(move |aps| {
-
                 match req_frame_flag_closure.try_lock() {
                     Ok(mut guard) => {
                         if *guard {
@@ -55,7 +53,7 @@ impl CamService {
                     }
                     Err(_) => {
                         println!("debug: mutex crash, skipping image");
-                    },
+                    }
                 }
 
                 Ok(gst::FlowSuccess::Ok)
@@ -65,11 +63,11 @@ impl CamService {
         let appsink = gst_app::AppSink::builder()
             .callbacks(callbacks)
             .name("appsink")
-            .max_buffers(2)
+            .max_buffers(1)
             .drop(true)
             .build()
-            .dynamic_cast().unwrap();
-
+            .dynamic_cast()
+            .unwrap();
 
         let pipeline = gst::Pipeline::with_name("pipeline");
 
@@ -85,24 +83,33 @@ impl CamService {
 
         println!("info: gst pipeline constructed successfully");
 
-        let ff = FrameFetcher { req_frame_flag: req_frame_flag, frame_rx: rx };
+        let ff = FrameFetcher {
+            req_frame_flag: req_frame_flag,
+            frame_rx: rx,
+        };
 
-        CamService { pipeline, ff: Some(ff) }
+        CamService {
+            pipeline,
+            ff: Some(ff),
+        }
     }
 
     pub fn extract_bytes(sample: gst::Sample) -> Vec<u8> {
         sample
-        .buffer()
-        .and_then(|buffer| buffer.map_readable().ok())
-        .map(|map| map.as_slice().to_vec())
-        .unwrap_or_default()
+            .buffer()
+            .and_then(|buffer| buffer.map_readable().ok())
+            .map(|map| map.as_slice().to_vec())
+            .unwrap_or_default()
     }
 
     pub fn get_fetcher(&mut self) -> Option<FrameFetcher> {
         self.ff.take()
     }
 
-    pub fn run_forever(&self) {
+    pub fn run_forever<F>(&self, is_alive: F)
+    where
+        F: Fn() -> bool,
+    {
         self.pipeline
             .set_state(gst::State::Playing)
             .expect("failed to start playing pipeline");
@@ -114,7 +121,9 @@ impl CamService {
             gst::ClockTime::NONE,
             &[MessageType::Error, MessageType::Eos],
         ) {
-            use gst::MessageView;
+            if !is_alive() {
+                panic!("no longer alive");
+            }
 
             match msg.view() {
                 MessageView::Error(err) => {
@@ -143,29 +152,31 @@ impl Drop for CamService {
     }
 }
 
-
-
-
 pub struct FrameFetcher {
     req_frame_flag: Arc<Mutex<bool>>,
     frame_rx: mpsc::Receiver<Vec<u8>>,
 }
 
 impl FrameFetcher {
-
-    pub fn fetch_frame_bytes(&self) -> Vec<u8>{
+    pub fn fetch_frame_bytes(&self) -> Vec<u8> {
         let fetch_start = Instant::now();
         // requrest frame
         {
             let mut guard = self.req_frame_flag.lock().unwrap();
             *guard = true;
         }
-    
+
         // wait for inbound frame
-        let jpeg_buffer = self.frame_rx.recv_timeout(Duration::from_secs(10)).expect("rame fetch timed out");    
-            
+        let jpeg_buffer = self
+            .frame_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("rame fetch timed out");
+
         let elapsed = Instant::now() - fetch_start;
-        println!("info: collected jpeg in {:.8} seconds", elapsed.as_secs_f32());
+        println!(
+            "info: collected jpeg in {:.8} seconds",
+            elapsed.as_secs_f32()
+        );
 
         jpeg_buffer
     }

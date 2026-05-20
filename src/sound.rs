@@ -1,13 +1,15 @@
 use std::{sync::Arc, time::Duration};
+use std::future::AsyncDrop;
 use tokio::sync::mpsc::{self, error::TryRecvError};
 
 use crate::gpio::GPIOUtil;
 
 #[derive(PartialEq, Debug)]
 pub enum AlarmState {
-    Disarmed,
     Active,
-    Test(u8),
+    Count(u8),
+    Error,
+    Disarmed,
 }
 
 pub struct SoundUtil {
@@ -54,7 +56,7 @@ impl SoundUtil {
 
                     tokio::time::sleep(Duration::from_millis(750)).await;
                 }
-                AlarmState::Test(n) => {
+                AlarmState::Count(n) => {
                     for _ in 0..n {
                         gpio_util.set_buzzer(true);
                         tokio::time::sleep(Duration::from_millis(125)).await;
@@ -63,7 +65,13 @@ impl SoundUtil {
                     }
                     alarm_state = AlarmState::Disarmed;
                 }
-                _ => tokio::time::sleep(Duration::from_millis(500)).await,
+                AlarmState::Error => {
+                    gpio_util.set_buzzer(true);
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    gpio_util.set_buzzer(false);
+                    break;
+                }
+                AlarmState::Disarmed => tokio::time::sleep(Duration::from_millis(500)).await,
             };
         }
         println!("warn: sound async worker exiting")
@@ -78,8 +86,25 @@ impl SoundUtil {
 
     pub async fn testsound(&self) {
         println!("debug: playing testsound");
-        self.set_state(AlarmState::Test(3)).await;
+        self.set_state(AlarmState::Count(2)).await;
         tokio::time::sleep(Duration::from_millis(1300)).await;
         println!("debug: playing complete");
+    }
+
+    pub async fn signal_start(&self) {
+        self.set_state(AlarmState::Count(2)).await;
+    }
+}
+
+impl Drop for SoundUtil {
+    fn drop(&mut self) {
+        println!("warn: sound util dropped outside of async");
+    }
+}
+
+impl AsyncDrop for SoundUtil {
+    async fn drop(self: std::pin::Pin<&mut Self>) {
+        self.set_state(AlarmState::Error).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }

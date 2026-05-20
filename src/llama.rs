@@ -132,40 +132,62 @@ pub async fn start_server() -> Job {
 
     let llama_log = std::fs::File::create("/tmp/gpt-alarm-llama.log").unwrap();
 
-    println!("rut: using the executable at {exec}");
-    let handle = thread::spawn(|| {
-        Exec::cmd(exec)
-            .arg("-hf")
-            .arg(HF_MODEL)
-            .arg("--host")
-            .arg(LLAMA_HOST)
-            .arg("--port")
-            .arg(LLAMA_PORT.to_string())
-            .arg("--n-gpu-layers")
-            .arg("-1")
-            .arg("--parallel")
-            .arg(NUM_PARALLEL.to_string())
-            .stdout(Redirection::File(llama_log))
-            .stderr(Redirection::Merge)
-            .start()
-            .expect("llama crashed on start")
-    });
+    println!("rust: using the following executable for llama: {exec}");
+    let handle = thread::Builder::new()
+        .name("llama-monitor".to_string())
+        .spawn(|| {
+            let job = Exec::cmd(exec)
+                .arg("-hf")
+                .arg(HF_MODEL)
+                .arg("--host")
+                .arg(LLAMA_HOST)
+                .arg("--port")
+                .arg(LLAMA_PORT.to_string())
+                .arg("--cache-ram") // can't afford, also useless
+                .arg("0")
+                .arg("--parallel")
+                .arg(NUM_PARALLEL.to_string())
+                .stdout(Redirection::File(llama_log))
+                .stderr(Redirection::Merge)
+                .start()
+                .expect("llama crashed on start");
+
+            let status = job.wait_timeout(Duration::from_secs(10));
+            println!("debug: post-timeout status {:?}", &status);
+            if status.is_err() || status.is_ok_and(|s| s.is_some()) {
+                panic!("llama did not start successfully");
+            }
+            else {
+                println!("info: llama started successfully");
+            }
+            job
+        })
+        .unwrap();
+
     let start_time = Instant::now();
 
     // wait for it to go online
-    while (Instant::now() - start_time) < Duration::from_secs(LLAMA_TTL) {
+    loop {
         println!("rust: pinging llama...");
 
         if is_healthy().await {
             println!("rust: llama is running!");
-            break;
+            break handle.join().unwrap();
         }
+
+        if handle.is_finished() {
+            let ret = handle.join();
+            if ret.is_err() {
+                panic!("llama failed")
+            } else {
+                break ret.unwrap();
+            }
+        }
+
+        if (Instant::now() - start_time) >= Duration::from_secs(LLAMA_TTL) {
+            panic!("rust: llama timeout, killing")
+        }
+
         tokio::time::sleep(time::Duration::from_secs(1)).await;
     }
-
-    if (Instant::now() - start_time) >= Duration::from_secs(LLAMA_TTL) {
-        panic!("rust: llama timeout, killing")
-    }
-
-    handle.join().unwrap()
 }
