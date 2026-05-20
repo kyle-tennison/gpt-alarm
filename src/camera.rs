@@ -84,7 +84,7 @@ impl CamService {
         println!("info: gst pipeline constructed successfully");
 
         let ff = FrameFetcher {
-            req_frame_flag: req_frame_flag,
+            req_frame_flag,
             frame_rx: rx,
         };
 
@@ -185,7 +185,7 @@ impl FrameFetcher {
     pub async fn save_photo_bytes(&self, filename: &str, bytes: &[u8]) {
         let mut image_file = tokio::fs::File::create(filename).await.unwrap();
         image_file
-            .write_all(&bytes)
+            .write_all(bytes)
             .await
             .expect("failed to save image");
 

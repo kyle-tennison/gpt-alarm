@@ -152,7 +152,7 @@ pub async fn start_server() -> Job {
                 .expect("llama crashed on start");
 
             let status = job.wait_timeout(Duration::from_secs(10));
-            println!("debug: post-timeout status {:?}", &status);
+            println!("debug: post-timeout status {:?}", status);
             if status.is_err() || status.is_ok_and(|s| s.is_some()) {
                 panic!("llama did not start successfully");
             } else {
