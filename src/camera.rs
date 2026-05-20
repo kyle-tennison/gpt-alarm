@@ -7,6 +7,7 @@ use gst::{
 use gst::{MessageView, glib::object::Cast, prelude::ElementExtManual};
 use std::{
     sync::{Arc, Mutex, mpsc},
+    thread,
     time::{Duration, Instant},
 };
 use tokio::io::AsyncWriteExt;
@@ -117,38 +118,70 @@ impl CamService {
         println!("info: pipeline started");
 
         let bus = self.pipeline.bus().unwrap();
-        for msg in bus.iter_timed_filtered(
-            gst::ClockTime::NONE,
-            &[MessageType::Error, MessageType::Eos],
-        ) {
-            if !is_alive() {
-                panic!("no longer alive");
-            }
-
-            match msg.view() {
-                MessageView::Error(err) => {
-                    eprintln!(
-                        "Error received from element {:?}: {}",
-                        err.src().map(|s| s.path_string()),
-                        err.error()
-                    );
-                    eprintln!("Debugging information: {:?}", err.debug());
-                    break;
+        let listener = thread::Builder::new()
+            .name("camera-loop".to_string())
+            .spawn(move || {
+                for msg in bus.iter_timed_filtered(
+                    gst::ClockTime::from_seconds(5),
+                    &[MessageType::Error, MessageType::Eos],
+                ) {
+                    match msg.view() {
+                        MessageView::Error(err) => {
+                            eprintln!(
+                                "Error received from element {:?}: {}",
+                                err.src().map(|s| s.path_string()),
+                                err.error()
+                            );
+                            eprintln!("Debugging information: {:?}", err.debug());
+                            break;
+                        }
+                        MessageView::Eos(..) => break,
+                        _ => (),
+                    }
                 }
-                MessageView::Eos(..) => break,
-                _ => (),
-            }
-        }
+            })
+            .unwrap();
 
-        self.pipeline
-            .set_state(gst::State::Null)
-            .expect("Unable to set the pipeline to the `Null` state");
+        // TODO: make async
+        while is_alive() {
+            println!("auxillary thread alive, continuing");
+            thread::sleep(Duration::from_secs(5));
+        }
+        println!("auxillary thred exited, quitting");
+
+        // for msg in bus.iter_timed_filtered(
+        //     gst::ClockTime::NONE,
+        //     &[MessageType::Error, MessageType::Eos],
+        // ) {
+        //     if !is_alive() {
+        //         panic!("no longer alive");
+        //     }
+
+        //     match msg.view() {
+        //         MessageView::Error(err) => {
+        //             eprintln!(
+        //                 "Error received from element {:?}: {}",
+        //                 err.src().map(|s| s.path_string()),
+        //                 err.error()
+        //             );
+        //             eprintln!("Debugging information: {:?}", err.debug());
+        //             break;
+        //         }
+        //         MessageView::Eos(..) => break,
+        //         _ => (),
+        //     }
+        // }
+
+
     }
 }
 
 impl Drop for CamService {
     fn drop(&mut self) {
-        println!("info: CamService starting cleaning up")
+        println!("info: CamService starting cleaning up");
+        self.pipeline
+            .set_state(gst::State::Null)
+            .expect("Unable to set the pipeline to the `Null` state");
     }
 }
 

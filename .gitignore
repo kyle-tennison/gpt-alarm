@@ -17,3 +17,7 @@ board/.history
 
 /target
 starup.jpg
+
+# other
+*.jpg
+debug.log
