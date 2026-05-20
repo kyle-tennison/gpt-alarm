@@ -11,7 +11,7 @@ const HF_MODEL: &str = "LiquidAI/LFM2.5-VL-450M-GGUF";
 const LLAMA_PORT: usize = 8080;
 const LLAMA_HOST: &str = "127.0.0.1";
 const LLAMA_TTL: u64 = 120; // timeout for llama
-const NUM_PARALLEL: usize = 3;
+const NUM_PARALLEL: usize = 5;
 
 // Will look through probability, return 'True' if the answer is True/Yes and false if the answer is `False/No`
 pub async fn multimodal_bool_completion(
@@ -85,7 +85,6 @@ pub async fn multimodal_bool_completion(
             .replace("!", "")
             .replace(",", "")
             .replace(";", "");
-        println!("the token is '{token}'");
 
         match token.as_str() {
             "true" | "yes" | "T" | "t" => true_prob += prob,
@@ -156,8 +155,7 @@ pub async fn start_server() -> Job {
             println!("debug: post-timeout status {:?}", &status);
             if status.is_err() || status.is_ok_and(|s| s.is_some()) {
                 panic!("llama did not start successfully");
-            }
-            else {
+            } else {
                 println!("info: llama started successfully");
             }
             job

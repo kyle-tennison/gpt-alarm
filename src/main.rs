@@ -13,8 +13,11 @@ mod led;
 mod llama;
 mod sound;
 
-const PROMPT: &str = "Is there a person *laying* in the bed? This is not a trick question. Only respond yes if he is visibly laying. Please respond yes or no, one word.";
-const CONFIDENCE_THRESHOLD: f32 = 0.5;
+const PROMPT: &str = "Is there a person *lying* in the bed? Respond one word: 'yes' or 'no'. \
+                      This is *not* a trick question. Only say yes if he is clearly visible \
+                      *and laying down.* **DO NOT say 'yes' if he is standing/sitting.**";
+
+const CONFIDENCE_THRESHOLD: f32 = 0.80;
 const PRELIM_LAUNCH_SCRIPT: &str = "launch.sh";
 
 // main thread (mt)

@@ -1,5 +1,5 @@
-use std::{sync::Arc, time::Duration};
 use std::future::AsyncDrop;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc::{self, error::TryRecvError};
 
 use crate::gpio::GPIOUtil;
