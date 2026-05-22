@@ -34,7 +34,7 @@ A public Onshape CAD model is provided [here](https://cad.onshape.com/documents/
 
 ### PCB
 
-![](image.png)
+![](media/schematic.png)
 
 A very simple PCB sits under the Jetson Orin Nano dev board. KiCad files for this are in `board/`. There is a spot for a relay here that is unused, but might be useful in a future version. The main purpose of this board is to operate the buzzer and an indicator LED.
 
