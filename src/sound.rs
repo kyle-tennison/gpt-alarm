@@ -1,9 +1,9 @@
-use std::future::AsyncDrop;
+use std::sync::mpsc::{self, TryRecvError};
 use std::{sync::Arc, time::Duration};
-use tokio::sync::mpsc::{self, error::TryRecvError};
 
 use crate::gpio::GPIOUtil;
 
+#[allow(dead_code)]
 #[derive(PartialEq, Debug)]
 pub enum AlarmState {
     Active,
@@ -14,11 +14,12 @@ pub enum AlarmState {
 
 pub struct SoundUtil {
     tx: mpsc::Sender<AlarmState>,
+    gpio_util: Arc<GPIOUtil>,
 }
 
 impl SoundUtil {
     pub fn new(gpio_util: Arc<GPIOUtil>) -> Self {
-        let (tx, rx) = mpsc::channel::<AlarmState>(1);
+        let (tx, rx) = mpsc::channel::<AlarmState>();
 
         let gpio_ref = gpio_util.clone();
 
@@ -26,18 +27,23 @@ impl SoundUtil {
             Self::async_worker(rx, gpio_ref).await;
         });
 
-        SoundUtil { tx }
+        SoundUtil {
+            tx,
+            gpio_util: gpio_util,
+        }
     }
 
-    async fn async_worker(mut rx: mpsc::Receiver<AlarmState>, gpio_util: Arc<GPIOUtil>) {
+    async fn async_worker(rx: mpsc::Receiver<AlarmState>, gpio_util: Arc<GPIOUtil>) {
         println!("info: sound task started");
         let mut alarm_state = AlarmState::Disarmed;
 
         loop {
             match rx.try_recv() {
                 Ok(update) => {
-                    alarm_state = update;
-                    println!("debug: updated alarm state to {:?}", alarm_state);
+                    if update != alarm_state {
+                        alarm_state = update;
+                        println!("debug: updated alarm state to {:?}", alarm_state);
+                    }
                 }
                 Err(TryRecvError::Empty) => (),
                 Err(TryRecvError::Disconnected) => break,
@@ -77,34 +83,29 @@ impl SoundUtil {
         println!("warn: sound async worker exiting")
     }
 
-    pub async fn set_state(&self, state: AlarmState) {
+    pub fn set_state(&self, state: AlarmState) {
+        println!("debug: requesting sound state {state:?}");
         self.tx
             .send(state)
-            .await
             .expect("unable to update SoundUtil state");
     }
 
     pub async fn testsound(&self) {
         println!("debug: playing testsound");
-        self.set_state(AlarmState::Count(2)).await;
+        self.set_state(AlarmState::Count(2));
         tokio::time::sleep(Duration::from_millis(1300)).await;
         println!("debug: playing complete");
     }
 
-    pub async fn signal_start(&self) {
-        self.set_state(AlarmState::Count(2)).await;
+    pub fn signal_start(&self) {
+        self.set_state(AlarmState::Count(2));
     }
 }
 
 impl Drop for SoundUtil {
     fn drop(&mut self) {
-        println!("warn: sound util dropped outside of async");
-    }
-}
-
-impl AsyncDrop for SoundUtil {
-    async fn drop(self: std::pin::Pin<&mut Self>) {
-        self.set_state(AlarmState::Error).await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        self.gpio_util.set_buzzer(true);
+        std::thread::sleep(Duration::from_millis(750));
+        self.gpio_util.set_buzzer(false);
     }
 }

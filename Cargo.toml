@@ -21,3 +21,4 @@ gpio = "0.4.1"
 gpio-cdev = "0.6.0"
 libc = "0.2.186"
 gstreamer-app = {version="^0.25.2"}
+chrono = "0.4.44"

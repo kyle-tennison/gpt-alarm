@@ -123,11 +123,36 @@ pub async fn is_healthy() -> bool {
     }
 }
 
+fn lamma_proc_exists(exec: &str) -> bool {
+    let lsof_output = Exec::cmd("lsof").arg(&exec).capture().unwrap();
+    let stdout = lsof_output.stdout_str();
+    let line_count = stdout.trim().lines().into_iter().count();
+    println!("debug: lsof return has {line_count} lines");
+    line_count > 0
+}
+
+async fn kill_existing_llama(exec: &str) {
+    let mut attemts: u8 = 0;
+    while lamma_proc_exists(&exec) {
+        println!("warning: other llama alive, killing");
+        Exec::cmd("kpill").arg("-f").arg(exec).capture().unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        if attemts > 10 {
+            panic!("could not kill existing llama process");
+        }
+        attemts += 1;
+    }
+}
+
 pub async fn start_server() -> Job {
     // spin up a llama server
     println!("rust: starting server in new thread");
 
     let exec = std::env::var("LLAMA_SERVER_BIN").unwrap_or(LLAMA_SERVER_BIN.to_string());
+
+    // kill existing_processes
+    kill_existing_llama(&exec).await;
 
     let llama_log = std::fs::File::create("/tmp/gpt-alarm-llama.log").unwrap();
 
@@ -152,7 +177,7 @@ pub async fn start_server() -> Job {
                 .expect("llama crashed on start");
 
             let status = job.wait_timeout(Duration::from_secs(10));
-            println!("debug: post-timeout status {:?}", &status);
+            println!("debug: post-timeout status {:?}", status);
             if status.is_err() || status.is_ok_and(|s| s.is_some()) {
                 panic!("llama did not start successfully");
             } else {

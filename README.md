@@ -1,47 +1,58 @@
-# gpt-alarm
+![](media/banner.png)
 
-🚨💡 Introducing the FUTURE of waking up!!! 💡🚨
-Are you tired of hitting snooze… over and over again? 😴⏰ What if your alarm clock didn’t just ring… but actually made sure you got OUT of bed?! 🤯🔥
+## Overview
 
-Say hello to the next-level, wall-mounted smart alarm system 🧠📈
-✨ Here’s how it works: 👀 It checks in on you in the morning to see if you’re STILL in bed 🔊 If you are… a gentle beep nudges you awake (we start nice 😌) ⏳ You then have 30 seconds to get up — with progressively faster beeps building urgency 📊⚡  Miss your window? SIRENNNNNNNNNN🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
+Getting up in the morning sounds simple, but for many people, the hardest part is staying out of bed after the alarm goes off. Traditional alarms only solve half the problem: they can wake you up, but they can’t stop you from crawling back under the covers five minutes later.
 
-This isn’t just an alarm clock. It’s accountability. It’s discipline. It’s a lifestyle upgrade. No more excuses. No more snoozing. Just results.
+Night Vision takes a different approach; it's an AI-powered alarm clock that uses an infrared camera and a fully local AI model to determine whether you’re still in bed. The alarm goes off at your set time, and only turns off when it sees you get out of bed. If the system detects that you’ve gone back to bed, the alarm starts again automatically. Once you’re actually up, it stays silent.
 
-Investors: I'm looking for a $42,000,000 seed round to accelerate go-to-market and fully realize our alarm-as-an-ai-service (AaaaS) vision
+## Privacy
 
-<img width="2632" height="1920" alt="Alarm Clock (2)" src="https://github.com/user-attachments/assets/d1061f3e-9ace-4c6f-b6d9-d775b64187c3" />
+Having a camera pointed at your bed is unnerving to most people. However, it's really no different than having your phone camera near your bed. Nothing is being sent over the web: the photos are streamed directly to an on-prem vision-language model, and are never even written to disk. 
 
+## Technical Overview
 
-## History
+This project is implemented in Rust on a Jetson Orin Nano dev board. This is more of an embedded project than an AI project. Fast iteration is desired, so the following system was chosen in an attempt to maximize efficiency.
+
+![](media/flowchart.png)
+
+### GStreamer
+
+The [`gstreamer-rs`](https://crates.io/crates/gstreamer) crate was used to implement GStreamer directly in Rust. This allows frames to be read directly from a callback function. This bypasses any network or file I/O, and doesn't need to make any kernel calls whatsoever because everything happens in shared memory[^1]. 
+
+There is a bit of time lost between requesting a frame in the "Frame Request Mutex" and the time the callback is triggered. However, the current implementation prefers a more recent frame over the fastest frame. There is no point in running the loop on an old frame.
+
+### Vision Language Model
+
+[`llama.cpp`](https://github.com/ggml-org/llama.cpp) is used for all AI-related processing. It was recompiled to take full advantage of the NVIDIA hardware. The model of choice is a tiny 450M vision-language model from LiquidAI: [`LiquidAI/LFM2.5-VL-450M-GGUF`](https://huggingface.co/LiquidAI/LFM2.5-VL-450M-GGUF). With the NVIDIA chip, the entire loop, from image to prediction, takes 0.3s. 
+
+### CAD Model
+
+![](media/cad.png)
+
+A public Onshape CAD model is provided [here](https://cad.onshape.com/documents/bcaebb5bd275e77d30be5dbb/w/f60a4044710e4fea0219c5aa/e/11bcaacbcd1531fb40906f8f?renderMode=0&uiState=6a0fc5f17abba21c43632f43). I was going for an 80s beige vibe, which a lot of people hate, but I personally love.
+
+### PCB
+
+![](image.png)
+
+A very simple PCB sits under the Jetson Orin Nano dev board. KiCad files for this are in `board/`. There is a spot for a relay here that is unused, but might be useful in a future version. The main purpose of this board is to operate the buzzer and an indicator LED.
+
+## Unrelated
 
 ### 15-year-old Attempt
 
-
-Jokes aside, this is one of my oldest ideas as an engineer. When I was 15, I tried a very similar approach using a *very* sketchy force transducer made from my parent's bathroom scale. It was SO bad, but I was 15 so idrc. This is what it looked like :sob::
+For a very long time, I've wanted an alarm clock that could detect when I was in bed. When I was 15, I tried a very similar approach using a *very* sketchy force transducer made from my parents' bathroom scale. This is what it looked like:
 
 <img width="972" height="513" alt="image" src="https://github.com/user-attachments/assets/8fc25f43-07f6-474b-961e-92c9a2626700" />
 
-
-
-This technically worked for a couple days, but I had to plug my laptop into it every night and I gave up on that within a week. I remember at the time contemplating running a CNN on a Raspberry PI that could monitor a video feed of my bed. I actually found the blog post where I was thinking about this:
+This worked for a couple of days, but I had to plug my laptop into it every night, so it didn't last long. I remember at the time contemplating running a CNN on a Raspberry Pi that could monitor a video feed of my bed. I actually found the blog post where I was thinking about this:
 
 > "I also considered the option of training an AI to use a picture to determine if I was in bed or not. I also ended up deciding against this because of the sheer complexity."
 
-From a [blog](https://rannsyt.blogspot.com/2020/10/i-built-smart-bed-blog.html) in 2020.
+From a [blog post](https://rannsyt.blogspot.com/2020/10/i-built-smart-bed-blog.html) in 2020.
 
-And it's good that I dropped that idea, because a conventional CNN would be so sensitive to the environment--if I could even get it trained in the first place. It would require a lot of training data, and the moment my room changed (new picture, different bedding, etc), the model could easily start spitting out garbage.
-
-### The GPT
-
-Generative **Pretrained** Transformers (GPTs) makes this task not just possible, but extremely simple. You can just take a VLM with a text query of "Is someone in this bed?" and it will work almost perfectly in any setting, so long that there's a good enough camera angle. The primary issue is security: we don't want to call any API for our model because:
-
-1. that would cost approximately one trillion dollars
-2. nobody wants to livestream themself sleeping
-
-So, to address this, we can run the model on any relatively powerful chip (I chose the 8gb Jetson Orin Nano). The model is run with [`llama.cpp`](https://github.com/ggml-org/llama.cpp) (see [`src/llama.rs`](/src/llama.rs)), and I'm using an absolutley tiny 450M VLM ([`LiquidAI/LFM2.5-VL-450M-GGUF`](https://huggingface.co/LiquidAI/LFM2.5-VL-450M-GGUF)) which is shockingly reliable.
+And it's good that I dropped that idea, because a conventional CNN would be extremely sensitive to any change in the environment. That is if I could even get it trained in the first place. It would require a lot of training data, and the moment my room changed (new picture, different bedding, etc.), the model could easily start spitting out garbage.
 
 
----
-
-<img width="1040" height="612" alt="image" src="https://github.com/user-attachments/assets/a8fa0652-b4f2-4cac-93f4-d38fed49628d" />
+[^1]: Don't quote me on the kernel part—I might be mistaken.
