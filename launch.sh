@@ -8,12 +8,12 @@ echo "set GPIO config"
 sudo systemctl restart nvargus-daemon
 echo "restarted nvargus-daemon"
 
-RELEASE_BIN="./target/release/gpt-alarm"
+RELEASE_BIN="./target/release/night-vision"
 ps ax | grep "$RELEASE_BIN"
 sudo pkill -f "$RELEASE_BIN"
 echo "killed release processes"
 
-DEBUG_BIN="./target/debug/gpt-alarm"
+DEBUG_BIN="./target/debug/night-vision"
 ps ax | grep "$DEBUG_BIN"
 sudo pkill -f "$DEBUG_BIN"
 echo "killed debug processes"

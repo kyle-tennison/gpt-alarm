@@ -44,7 +44,7 @@ fn main() {
             .borrow()
             .as_ref()
             .is_some_and(|f| !f.is_finished());
-        println!("info: pulling at thread for life: {is_alive}");
+        println!("info: pulling aux thread for life: {is_alive}");
         is_alive
     };
 

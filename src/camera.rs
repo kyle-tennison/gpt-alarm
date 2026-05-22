@@ -145,7 +145,7 @@ impl CamService {
         // TODO: make async
         while is_alive() {
             println!("auxillary thread alive, continuing");
-            thread::sleep(Duration::from_secs(5));
+            thread::sleep(Duration::from_seconds(60));
         }
         println!("auxillary thred exited, quitting");
 
