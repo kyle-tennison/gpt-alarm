@@ -53,6 +53,7 @@ impl LEDUtil {
                 Ok(update) => {
                     state = update;
                     println!("debug: updated led state to {:?}", state);
+                    continue; // loop until empty
                 }
                 Err(TryRecvError::Empty) => (),
                 Err(TryRecvError::Disconnected) => break,

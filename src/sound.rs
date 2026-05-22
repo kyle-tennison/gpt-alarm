@@ -44,6 +44,7 @@ impl SoundUtil {
                         alarm_state = update;
                         println!("debug: updated alarm state to {:?}", alarm_state);
                     }
+                    continue; // loop until empty
                 }
                 Err(TryRecvError::Empty) => (),
                 Err(TryRecvError::Disconnected) => break,
