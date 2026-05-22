@@ -1,16 +1,10 @@
-# gpt-alarm
+![](banner.png)
 
-🚨💡 Introducing the FUTURE of waking up!!! 💡🚨
-Are you tired of hitting snooze… over and over again? 😴⏰ What if your alarm clock didn’t just ring… but actually made sure you got OUT of bed?! 🤯🔥
 
-Say hello to the next-level, wall-mounted smart alarm system 🧠📈
-✨ Here’s how it works: 👀 It checks in on you in the morning to see if you’re STILL in bed 🔊 If you are… a gentle beep nudges you awake (we start nice 😌) ⏳ You then have 30 seconds to get up — with progressively faster beeps building urgency 📊⚡  Miss your window? SIRENNNNNNNNNN🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
+## An alarm clock that can see you
 
-This isn’t just an alarm clock. It’s accountability. It’s discipline. It’s a lifestyle upgrade. No more excuses. No more snoozing. Just results.
+[TBD]
 
-Investors: I'm looking for a $42,000,000 seed round to accelerate go-to-market and fully realize our alarm-as-an-ai-service (AaaaS) vision
-
-<img width="2632" height="1920" alt="Alarm Clock (2)" src="https://github.com/user-attachments/assets/d1061f3e-9ace-4c6f-b6d9-d775b64187c3" />
 
 
 ## History
@@ -40,8 +34,3 @@ Generative **Pretrained** Transformers (GPTs) makes this task not just possible,
 2. nobody wants to livestream themself sleeping
 
 So, to address this, we can run the model on any relatively powerful chip (I chose the 8gb Jetson Orin Nano). The model is run with [`llama.cpp`](https://github.com/ggml-org/llama.cpp) (see [`src/llama.rs`](/src/llama.rs)), and I'm using an absolutley tiny 450M VLM ([`LiquidAI/LFM2.5-VL-450M-GGUF`](https://huggingface.co/LiquidAI/LFM2.5-VL-450M-GGUF)) which is shockingly reliable.
-
-
----
-
-<img width="1040" height="612" alt="image" src="https://github.com/user-attachments/assets/a8fa0652-b4f2-4cac-93f4-d38fed49628d" />
