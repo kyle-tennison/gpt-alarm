@@ -23,11 +23,11 @@ impl GPIOUtil {
         // set both pinouts to default zero
         // if these fail, it might be b/c there's another process using it
         let buzzer_handle = buzz_line
-            .request(LineRequestFlags::OUTPUT, 0, "gpt-alarm")
+            .request(LineRequestFlags::OUTPUT, 0, "night-vision")
             .expect("failure requesting buzzer line");
 
         let led_handle = led_line
-            .request(LineRequestFlags::OUTPUT, 0, "gpt-alarm")
+            .request(LineRequestFlags::OUTPUT, 0, "night-vision")
             .expect("failure requesting led line");
 
         Self {
