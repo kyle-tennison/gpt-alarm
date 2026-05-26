@@ -154,7 +154,7 @@ pub async fn start_server() -> Job {
     // kill existing_processes
     kill_existing_llama(&exec).await;
 
-    let llama_log = std::fs::File::create("/tmp/night-vision-llama.log").unwrap();
+    let llama_log = std::fs::File::create("/var/night-vision/llama.log").unwrap();
 
     println!("rust: using the following executable for llama: {exec}");
     let handle = thread::Builder::new()

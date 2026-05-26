@@ -1,0 +1,14 @@
+# nightvision.service
+
+[Unit]
+Description= Night Vision Alarm
+
+[Service]
+Type= simple
+ExecStart= /etc/night-vision/launch.sh
+
+ExecStop= /etc/night-vision/kill.sh
+ExecStopPost= /etc/night-vision/kill.sh # still needed to kill llama if failed
+
+[Install]
+WantedBy= multi-user.target
