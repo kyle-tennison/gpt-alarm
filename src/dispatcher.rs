@@ -24,6 +24,7 @@ const CONFIDENCE_THRESHOLD: f32 = 0.80;
 // TODO: midnight overlap support
 const INTERVAL_BEGIN: [u32; 2] = [7, 00];
 const INTERVAL_END: [u32; 2] = [12, 00];
+const ALWAYS_ACTIVE: bool = true; // overrides time interval, makes always active
 
 #[allow(dead_code)]
 pub struct Dispatcher {
@@ -66,6 +67,12 @@ impl Dispatcher {
 
     /// check if it's within the specified time
     fn is_active_time() -> bool {
+
+        if ALWAYS_ACTIVE {
+            println!("debug: always active, skipping time check");
+            return ALWAYS_ACTIVE;
+        }
+
         let now = chrono::Local::now();
 
         let hour = now.hour();

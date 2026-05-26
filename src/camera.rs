@@ -118,7 +118,7 @@ impl CamService {
         println!("info: pipeline started");
 
         let bus = self.pipeline.bus().unwrap();
-        let listener = thread::Builder::new()
+        let _job = thread::Builder::new()
             .name("camera-loop".to_string())
             .spawn(move || {
                 for msg in bus.iter_timed_filtered(
@@ -145,34 +145,9 @@ impl CamService {
         // TODO: make async
         while is_alive() {
             println!("auxillary thread alive, continuing");
-            thread::sleep(Duration::from_seconds(60));
+            thread::sleep(Duration::from_secs(60));
         }
         println!("auxillary thred exited, quitting");
-
-        // for msg in bus.iter_timed_filtered(
-        //     gst::ClockTime::NONE,
-        //     &[MessageType::Error, MessageType::Eos],
-        // ) {
-        //     if !is_alive() {
-        //         panic!("no longer alive");
-        //     }
-
-        //     match msg.view() {
-        //         MessageView::Error(err) => {
-        //             eprintln!(
-        //                 "Error received from element {:?}: {}",
-        //                 err.src().map(|s| s.path_string()),
-        //                 err.error()
-        //             );
-        //             eprintln!("Debugging information: {:?}", err.debug());
-        //             break;
-        //         }
-        //         MessageView::Eos(..) => break,
-        //         _ => (),
-        //     }
-        // }
-
-
     }
 }
 

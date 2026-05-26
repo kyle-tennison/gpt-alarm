@@ -752,6 +752,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
+name = "duration-macro"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99d69c779878a7f7814ab593765bf09e2a97d3ca6bb5fa315ddab589b7bf2b0f"
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1998,6 +2004,7 @@ dependencies = [
  "async-process",
  "base64",
  "chrono",
+ "duration-macro",
  "gpio",
  "gpio-cdev",
  "gstreamer",
